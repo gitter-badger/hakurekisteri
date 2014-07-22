@@ -121,7 +121,7 @@ class ScalatraBootstrap extends LifeCycle {
     val sijoitteluServiceUrl = OPHSecurity.config.properties.get("cas.service.sijoittelu-service").getOrElse(sijoitteluServiceUrlQa)
     val serviceAccessUrl = "https://" + OPHSecurity.config.properties.get("host.virkailija").getOrElse(hostQa) + "/service-access"
 
-    val sijoittelu = system.actorOf(Props(new SijoitteluActor(new RestSijoittelupalvelu(serviceAccessUrl, sijoitteluServiceUrl,sijoitteluUser,sijoitteluPw), "1.2.246.562.5.2013080813081926341927")))
+    val sijoittelu = system.actorOf(Props(new SijoitteluActor(new RestSijoittelupalvelu(serviceAccessUrl, sijoitteluServiceUrl,sijoitteluUser,sijoitteluPw), "1.2.246.562.5.2013080813081926341927", "1.2.246.562.5.2014022711042555034240", "1.2.246.562.29.32820950486")))
 
     val hakemukset = system.actorOf(Props(new HakemusActor(serviceAccessUrl, hakuappServiceUrl, maxApplications, sijoitteluUser,sijoitteluPw)), "hakemus")
 
@@ -129,6 +129,10 @@ class ScalatraBootstrap extends LifeCycle {
 
 
     system.scheduler.schedule(1.second, 2.hours, hakemukset, ReloadHaku("1.2.246.562.5.2013080813081926341927"))
+    system.scheduler.schedule(1.second, 2.hours, hakemukset, ReloadHaku("1.2.246.562.5.2014022711042555034240"))
+    system.scheduler.schedule(1.second, 2.hours, hakemukset, ReloadHaku("1.2.246.562.29.32820950486"))
+
+
 
     val hakijat = system.actorOf(Props(new HakijaActor(new AkkaHakupalvelu(hakemukset), organisaatiot, new RestKoodistopalvelu(koodistoServiceUrl), sijoittelu)))
 
