@@ -120,7 +120,7 @@ class ScalatraBootstrap extends LifeCycle {
     system.scheduler.schedule(1.second, 2.hours, hakemukset, ReloadHaku("1.2.246.562.5.2013080813081926341927"))
     system.scheduler.schedule(1.second, 2.hours, hakemukset, ReloadHaku("1.2.246.562.5.2014022711042555034240"))
     system.scheduler.schedule(1.second, 2.hours, hakemukset, ReloadHaku("1.2.246.562.29.32820950486"))
-
+    system.scheduler.schedule(1.second, 2.hours, hakemukset, ReloadHaku("1.2.246.562.29.48221303398"))
 
 
     val hakijat = system.actorOf(Props(new HakijaActor(new AkkaHakupalvelu(hakemukset), organisaatiot, new RestKoodistopalvelu(koodistoServiceUrl), sijoittelu)))
