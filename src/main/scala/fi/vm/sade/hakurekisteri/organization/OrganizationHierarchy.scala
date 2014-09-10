@@ -52,9 +52,9 @@ class FutureOrganizationHierarchy[A <: Resource[I] :Manifest, I ](serviceUrl:Str
     case a:OrganizationAuthorizer => logger.info("org paths loaded");authorizer = a
     case AuthorizedQuery(q,orgs,_) => (filteredActor ? q).mapTo[Seq[A with Identified[UUID]]].flatMap(futfilt(_, isAuthorized(orgs))) pipeTo sender
     case AuthorizedRead(id, orgs,_) => (filteredActor ? id).mapTo[Option[A with Identified[UUID]]].flatMap(checkRights(orgs)) pipeTo sender
-    case AuthorizedDelete(id, orgs, _)  => val checkedRights = for (resourceToDelete <- filteredActor ? id;
+    case AuthorizedDelete(id, orgs, user)  => val checkedRights = for (resourceToDelete <- filteredActor ? id;
                                                                     rights <- checkRights(orgs)(resourceToDelete.asInstanceOf[Option[A]]);
-                                                                    result <- if (rights.isDefined) filteredActor ? DeleteResource(id) else Future.successful(Unit)
+                                                                    result <- if (rights.isDefined) filteredActor ? DeleteResource(id, user) else Future.successful(Unit)
                                                                     )
                                                                     yield result.asInstanceOf[Unit]
 
@@ -188,20 +188,20 @@ class OrganizationHierarchyAuthorization[A:Manifest](serviceUrl:String, organiza
 
 }
 
-case class AuthorizedQuery[A](q:Query[A], orgs: Seq[String], user:String)
-case class AuthorizedRead[I](id:I, orgs:Seq[String], user:String)
+case class AuthorizedQuery[A](q: Query[A], orgs: Seq[String], user:String)
+case class AuthorizedRead[I](id: I, orgs: Seq[String], user: String)
 
-case class AuthorizedDelete[I](id:I, orgs:Seq[String], user:String)
-case class AuthorizedCreate[A <: Resource[_]](q:A, orgs: Seq[String], user:String)
-case class AuthorizedUpdate[A <: Resource[_]](q:A with Identified[_], orgs: Seq[String], user:String)
+case class AuthorizedDelete[I](id: I, orgs: Seq[String], user: String)
+case class AuthorizedCreate[A <: Resource[_]](q: A, orgs: Seq[String], user: String)
+case class AuthorizedUpdate[A <: Resource[_]](q: A with Identified[_], orgs: Seq[String], user: String)
 
 
 
 case class OrganizationAuthorizer(orgPaths: Map[String, Seq[String]]) {
-  def checkAccess(user:Seq[String], futTarget:concurrent.Future[String]) = futTarget.map {
+  def checkAccess(user: Seq[String], futTarget: concurrent.Future[String]) = futTarget.map {
     (target) =>
     val path = orgPaths.getOrElse(target, Seq())
     path.exists { x => user.contains(x) }
   }
 }
-case class Org(oid:String, parent:Option[String], lopetusPvm: Option[DateTime] )
+case class Org(oid: String, parent: Option[String], lopetusPvm: Option[DateTime] )

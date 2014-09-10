@@ -11,7 +11,7 @@ import ScalateKeys._
 object HakuJaValintarekisteriBuild extends Build {
   val Organization = "fi.vm.sade"
   val Name = "hakurekisteri"
-  val Version = "LATEST-SNAPSHOT"
+  val Version = "11.0-SNAPSHOT"
   val ScalaVersion = "2.10.3"
   val ArtifactName = (s: ScalaVersion, m: ModuleID, a: Artifact) => s"${a.name}-${m.revision}.${a.extension}"
   val ScalatraVersion = "2.2.2"
@@ -63,10 +63,13 @@ object HakuJaValintarekisteriBuild extends Build {
     "info.folone" %% "poi-scala" % "0.9",
     "org.apache.activemq" % "activemq-all" % "5.9.1",
     "org.apache.camel" % "camel-jms" % "2.13.0",
-    "fi.vm.sade.log" % "log-client" % "7.0"
+    "fi.vm.sade.log" % "log-client" % "7.0",
+    "fr.janalyse" %% "janalyse-ssh" % "0.9.10"
   )
 
-  val testDependencies = Seq("org.scalatra" %% "scalatra-scalatest" % ScalatraVersion, "org.scalamock" %% "scalamock-scalatest-support" % "3.0.1")
+  val testDependencies = Seq("org.scalatra" %% "scalatra-scalatest" % ScalatraVersion,
+                             "org.scalamock" %% "scalamock-scalatest-support" % "3.0.1",
+                             "org.scala-tools.testing" %% "specs" % "1.6.9")
 
   lazy val mocha = taskKey[Unit]("run mocha tests")
   lazy val installMocha = taskKey[Unit]("install mocha")
@@ -162,6 +165,7 @@ object HakuJaValintarekisteriBuild extends Build {
           resolvers += "oph-snapshots" at "http://penaali.hard.ware.fi/artifactory/oph-sade-snapshot-local",
           resolvers += "oph-releases" at "http://penaali.hard.ware.fi/artifactory/oph-sade-release-local",
           resolvers += "Sonatype" at "http://oss.sonatype.org/content/repositories/releases/",
+          resolvers += "JAnalyse Repository" at "http://www.janalyse.fr/repository/",
           credentials += Credentials(Path.userHome / ".ivy2" / ".credentials"),
           artifactoryPublish,
           buildversionTask,

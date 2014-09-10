@@ -1,7 +1,14 @@
 package fi.vm.sade.hakurekisteri.hakija
 
 import akka.actor.{ActorRef, Actor}
+import fi.vm.sade.hakurekisteri.integration.hakemus.Hakupalvelu
+import fi.vm.sade.hakurekisteri.integration.koodisto.GetRinnasteinenKoodiArvoQuery
+import fi.vm.sade.hakurekisteri.integration.organisaatio.Organisaatio
+import fi.vm.sade.hakurekisteri.integration.sijoittelu.{SijoitteluQuery, SijoitteluTulos, SijoitteluValintatuloksenTila, SijoitteluHakemuksenTila}
+import fi.vm.sade.hakurekisteri.integration.sijoittelu.SijoitteluValintatuloksenTila.SijoitteluValintatuloksenTila
+import fi.vm.sade.hakurekisteri.integration.sijoittelu.SijoitteluHakemuksenTila.SijoitteluHakemuksenTila
 import scala.concurrent.{Future, ExecutionContext}
+import scala.concurrent.duration._
 import akka.event.Logging
 import fi.vm.sade.hakurekisteri.suoritus.Suoritus
 import fi.vm.sade.hakurekisteri.henkilo._
@@ -11,10 +18,7 @@ import fi.vm.sade.hakurekisteri.henkilo.Yhteystiedot
 import akka.pattern.{pipe, ask}
 import ForkedSeq._
 import TupledFuture._
-import fi.vm.sade.hakurekisteri.hakija.SijoitteluHakemuksenTila.SijoitteluHakemuksenTila
-import fi.vm.sade.hakurekisteri.hakija.SijoitteluValintatuloksenTila._
 import scala.util.Failure
-import scala.Some
 import fi.vm.sade.hakurekisteri.rest.support.{Kausi, User}
 import scala.util.Success
 import fi.vm.sade.hakurekisteri.suoritus.Komoto
@@ -166,11 +170,11 @@ case class Peruuntunut(jno: Int,hakukohde: Hakukohde, kaksoistutkinto: Option[Bo
   override def withPisteet(pisteet:Option[BigDecimal]) = this.copy(yhteispisteet = pisteet)
 }
 
-case class Hakemus(hakutoiveet: Seq[Hakutoive], hakemusnumero: String, julkaisulupa: Option[Boolean], hakuOid: String)
+case class Hakemus(hakutoiveet: Seq[Hakutoive], hakemusnumero: String, julkaisulupa: Option[Boolean], hakuOid: String, lisapistekoulutus: Option[String])
 
 case class Hakija(henkilo: Henkilo, suoritukset: Seq[Suoritus], opiskeluhistoria: Seq[Opiskelija], hakemus: Hakemus)
 
-class HakijaActor(hakupalvelu: Hakupalvelu, organisaatioActor: ActorRef, koodistopalvelu: Koodistopalvelu, sijoittelupalvelu: ActorRef) extends Actor {
+class HakijaActor(hakupalvelu: Hakupalvelu, organisaatioActor: ActorRef, koodistoActor: ActorRef, sijoittelupalvelu: ActorRef) extends Actor {
   implicit val executionContext: ExecutionContext = context.dispatcher
   val log = Logging(context.system, this)
 
@@ -217,7 +221,7 @@ class HakijaActor(hakupalvelu: Hakupalvelu, organisaatioActor: ActorRef, koodist
     getOrg(tarjoaja).flatMap((o) => findOppilaitoskoodi(o.map(_.oid)).map(k => extractOption(o, k)))
   }
 
-  def createHakemus(hakija: Hakija)(opiskelija: Option[Opiskelija], org:Option[Organisaatio], ht: Seq[XMLHakutoive]) = XMLHakemus(hakija, opiskelija, org, ht)
+  def createHakemus(hakija: Hakija)(opiskelija: Option[Opiskelija], org: Option[Organisaatio], ht: Seq[XMLHakutoive]) = XMLHakemus(hakija, opiskelija, org, ht)
 
   def getXmlHakemus(hakija: Hakija): Future[XMLHakemus] = {
     val (opiskelutieto, lahtokoulu) = getOpiskelijaTiedot(hakija)
@@ -229,13 +233,12 @@ class HakijaActor(hakupalvelu: Hakupalvelu, organisaatioActor: ActorRef, koodist
 
   def getOpiskelijaTiedot(hakija: Hakija): (Future[Option[Opiskelija]], Future[Option[Organisaatio]]) = hakija.opiskeluhistoria match {
     case opiskelijaTiedot :: _ => (Future.successful(Some(opiskelijaTiedot)), getOrg(opiskelijaTiedot.oppilaitosOid))
-    case _ => (Future.successful(None),Future.successful(None))
+    case _ => (Future.successful(None), Future.successful(None))
   }
-
 
   def getMaakoodi(koodiArvo: String): Future[String] = koodiArvo.toLowerCase match {
     case "fin" => Future.successful("246")
-    case arvo => koodistopalvelu.getRinnasteinenKoodiArvo("maatjavaltiot1_" + arvo, "maatjavaltiot2")
+    case arvo => (koodistoActor ? GetRinnasteinenKoodiArvoQuery("maatjavaltiot1_" + arvo, "maatjavaltiot2"))(10.seconds).mapTo[String]
   }
 
 
@@ -281,8 +284,6 @@ class HakijaActor(hakupalvelu: Hakupalvelu, organisaatioActor: ActorRef, koodist
         for (ht <- h.hakemus.hakutoiveet)
           yield Hakutoive(ht, hakemus(hakemusnumero, ht.hakukohde.oid), valinta(hakemusnumero, ht.hakukohde.oid))))
   }
-
-
 
   import scala.concurrent.duration._
 
