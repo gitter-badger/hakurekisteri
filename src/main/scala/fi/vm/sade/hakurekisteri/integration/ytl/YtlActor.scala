@@ -16,12 +16,16 @@ import fi.vm.sade.hakurekisteri.arvosana.ArvioYo
 import fi.vm.sade.hakurekisteri.integration.henkilo.HenkiloResponse
 import fi.vm.sade.hakurekisteri.integration.henkilo.HetuQuery
 import scala.util.Failure
+import scala.Some
 import scala.util.Success
 import fr.janalyse.ssh.{SSHPassword, SSH}
 import java.io.{PrintWriter, ByteArrayOutputStream}
 import scala.concurrent.duration._
 
 
+case class YtlReport(current: Batch[KokelasRequest], waitingforAnswers: Seq[Batch[KokelasRequest]], nextSend: Option[DateTime])
+
+object Report
 
 class YtlActor(henkiloActor: ActorRef, suoritusRekisteri: ActorRef, arvosanaRekisteri: ActorRef, config: Option[YTLConfig]) extends Actor {
 
@@ -50,10 +54,6 @@ class YtlActor(henkiloActor: ActorRef, suoritusRekisteri: ActorRef, arvosanaReki
   }
 
 
-  def now: Int = {
-    DateTime.now.hourOfDay.get
-  }
-
   val log = Logging(context.system, this)
 
 
@@ -61,10 +61,11 @@ class YtlActor(henkiloActor: ActorRef, suoritusRekisteri: ActorRef, arvosanaReki
   var suoritusKokelaat = Map[UUID, (Suoritus with Identified[UUID], Kokelas)]()
 
   override def receive: Actor.Receive = {
+    case Report => sender ! YtlReport(batch, sent, nextSend)
     case CheckSend if nextSend.getOrElse(DateTime.now.plusDays(1)).isBefore(DateTime.now()) =>
       self ! Send
       nextSend = nextSendTime
-    case k:KokelasRequest =>
+    case k:KokelasRequest if config.isDefined =>
       batch = k +: batch
     case Send if config.isDefined && !batch.items.isEmpty =>
                  log.debug(s"sending batch ${batch.id} with ${batch.items.size} applicants")
