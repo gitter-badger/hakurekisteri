@@ -1,6 +1,8 @@
 import _root_.akka.camel.CamelExtension
 import _root_.akka.routing.BroadcastRouter
 import fi.vm.sade.hakurekisteri.integration.audit.AuditUri
+import fi.vm.sade.hakurekisteri.integration.haku.{HakuResource, HakuActor}
+import fi.vm.sade.hakurekisteri.integration.parametrit.ParameterActor
 import fi.vm.sade.hakurekisteri.integration.ytl.{YTLConfig, KokelasRequest, YtlActor}
 import java.nio.file.Path
 import java.util.UUID
@@ -65,7 +67,7 @@ class ScalatraBootstrap extends LifeCycle {
 
     val sanity = system.actorOf(Props(new PerusopetusSanityActor(koodistoServiceUrl, registers.suoritusRekisteri, journals.arvosanaJournal)), "perusopetus-sanity")
 
-    val integrations = new BaseIntegrations(virtaConfig, henkiloConfig, tarjontaConfig, organisaatioConfig, sijoitteluConfig, hakemusConfig, ytlConfig, koodistoConfig, registers, system)
+    val integrations = new BaseIntegrations(virtaConfig, henkiloConfig, tarjontaConfig, organisaatioConfig, sijoitteluConfig, parameterConfig, hakemusConfig, ytlConfig, koodistoConfig, registers, system)
 
 
     val koosteet = new BaseKoosteet(system, integrations, registers)
@@ -73,10 +75,6 @@ class ScalatraBootstrap extends LifeCycle {
     val healthcheck = system.actorOf(Props(new HealthcheckActor(authorizedRegisters.arvosanaRekisteri, authorizedRegisters.opiskelijaRekisteri, authorizedRegisters.opiskeluoikeusRekisteri, authorizedRegisters.suoritusRekisteri, integrations.ytl ,  integrations.hakemukset)), "healthcheck")
 
 
-    system.scheduler.schedule(1.second, 2.hours, integrations.hakemukset, ReloadHaku("1.2.246.562.5.2013080813081926341927"))
-    system.scheduler.schedule(1.second, 2.hours, integrations.hakemukset, ReloadHaku("1.2.246.562.5.2014022711042555034240"))
-    system.scheduler.schedule(1.second, 2.hours, integrations.hakemukset, ReloadHaku("1.2.246.562.29.32820950486"))
-    system.scheduler.schedule(1.second, 2.hours, integrations.hakemukset, ReloadHaku("1.2.246.562.29.48221303398"))
 
     mountServlets(context) (
       "/" -> new GuiServlet,
@@ -84,6 +82,7 @@ class ScalatraBootstrap extends LifeCycle {
       "/rest/v1/api-docs/*" -> new ResourcesApp,
       "/rest/v1/arvosanat" -> new HakurekisteriResource[Arvosana, CreateArvosanaCommand](authorizedRegisters.arvosanaRekisteri, ArvosanaQuery(_)) with ArvosanaSwaggerApi with HakurekisteriCrudCommands[Arvosana, CreateArvosanaCommand] with SpringSecuritySupport,
       "/rest/v1/ensikertalainen" -> new EnsikertalainenResource(koosteet.ensikertalainen),
+      "/rest/v1/haut" -> new HakuResource(koosteet.haut),
       "/rest/v1/hakijat" -> new HakijaResource(koosteet.hakijat),
       "/rest/v1/opiskelijat" -> new HakurekisteriResource[Opiskelija, CreateOpiskelijaCommand](authorizedRegisters.opiskelijaRekisteri, OpiskelijaQuery(_)) with OpiskelijaSwaggerApi with HakurekisteriCrudCommands[Opiskelija, CreateOpiskelijaCommand] with SpringSecuritySupport,
       "/rest/v1/opiskeluoikeudet" -> new HakurekisteriResource[Opiskeluoikeus, CreateOpiskeluoikeusCommand](authorizedRegisters.opiskeluoikeusRekisteri, OpiskeluoikeusQuery(_)) with OpiskeluoikeusSwaggerApi with HakurekisteriCrudCommands[Opiskeluoikeus, CreateOpiskeluoikeusCommand] with SpringSecuritySupport,
@@ -224,13 +223,13 @@ class AuthorizedRegisters(organisaatioSoapServiceUrl: String, unauthorized: Regi
 
   def authorizer[A <: Resource[I] : ClassTag: Manifest, I](guarded: ActorRef, orgFinder: A => String): ActorRef = {
     val resource = typeOf[A].typeSymbol.name.toString.toLowerCase
-    system.actorOf(Props(new OrganizationHierarchy[A, I](organisaatioSoapServiceUrl, guarded, orgFinder)), s"$resource-authorizer")
+    system.actorOf(Props(new OrganizationHierarchy[A, I](organisaatioSoapServiceUrl, guarded, (i: A) => Seq(orgFinder(i)))), s"$resource-authorizer")
   }
 
   override val suoritusRekisteri = authorizer[Suoritus, UUID](unauthorized.suoritusRekisteri, (suoritus) => suoritus.myontaja)
   override val opiskelijaRekisteri = authorizer[Opiskelija, UUID](unauthorized.opiskelijaRekisteri, (opiskelija) => opiskelija.oppilaitosOid)
   override val opiskeluoikeusRekisteri = authorizer[Opiskeluoikeus, UUID](unauthorized.opiskeluoikeusRekisteri, (opiskeluoikeus) => opiskeluoikeus.myontaja)
-  override val arvosanaRekisteri =  system.actorOf(Props(new FutureOrganizationHierarchy[Arvosana, UUID](organisaatioSoapServiceUrl, unauthorized.arvosanaRekisteri, (arvosana) => unauthorized.suoritusRekisteri.?(arvosana.suoritus)(Timeout(300, TimeUnit.SECONDS)).mapTo[Option[Suoritus]].map(_.map(_.myontaja).getOrElse("")))), "arvosana-authorizer")
+  override val arvosanaRekisteri =  system.actorOf(Props(new FutureOrganizationHierarchy[Arvosana, UUID](organisaatioSoapServiceUrl, unauthorized.arvosanaRekisteri, (arvosana) => unauthorized.suoritusRekisteri.?(arvosana.suoritus)(Timeout(300, TimeUnit.SECONDS)).mapTo[Option[Suoritus]].map(_.map((s) => Seq(s.myontaja, s.source, arvosana.source)).getOrElse(Seq())))), "arvosana-authorizer")
 }
 
 object AuthorizedRegisters {
@@ -273,6 +272,7 @@ trait Integrations {
   val hakemukset: ActorRef
   val tarjonta: ActorRef
   val koodisto: ActorRef
+  val parametrit: ActorRef
 }
 
 class BaseIntegrations(virtaConfig: VirtaConfig,
@@ -280,6 +280,7 @@ class BaseIntegrations(virtaConfig: VirtaConfig,
                        tarjontaConfig: ServiceConfig,
                        organisaatioConfig: ServiceConfig,
                        sijoitteluConfig: ServiceConfig,
+                       parameterConfig: ServiceConfig,
                        hakemusConfig: HakemusConfig,
                        ytlConfig: Option[YTLConfig],
                        koodistoConfig: ServiceConfig,
@@ -311,11 +312,14 @@ class BaseIntegrations(virtaConfig: VirtaConfig,
   val hakemukset = system.actorOf(Props(new HakemusActor(new VirkailijaRestClient(hakemusConfig.serviceConf)(getClient, ec), hakemusConfig.maxApplications, newApplicant = newApplicant)), "hakemus")
 
   val koodisto = system.actorOf(Props(new KoodistoActor(new VirkailijaRestClient(koodistoConfig)(getClient, ec))), "koodisto")
+
+  val parametrit = system.actorOf(Props(new ParameterActor(new VirkailijaRestClient(parameterConfig)(getClient(), ec))))
 }
 
 trait Koosteet {
   val hakijat: ActorRef
   val ensikertalainen: ActorRef
+  val haut: ActorRef
 }
 
 class BaseKoosteet(system: ActorSystem, integrations: Integrations, registers: Registers) extends Koosteet {
@@ -325,5 +329,6 @@ class BaseKoosteet(system: ActorSystem, integrations: Integrations, registers: R
 
   override val ensikertalainen: ActorRef = system.actorOf(Props(new EnsikertalainenActor(registers.suoritusRekisteri, registers.opiskeluoikeusRekisteri, integrations.virta, integrations.henkilo, integrations.tarjonta)), "ensikertalainen")
 
+  val haut = system.actorOf(Props(new HakuActor(integrations.tarjonta, integrations.parametrit, integrations.hakemukset)))
   //integrations.hakemukset ! Trigger((oid, hetu) => ensikertalainen ! EnsikertalainenQuery(oid))
 }
