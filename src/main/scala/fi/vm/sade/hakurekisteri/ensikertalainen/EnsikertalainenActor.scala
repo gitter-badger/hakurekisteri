@@ -14,16 +14,24 @@ import org.joda.time.{DateTime, LocalDate}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
+import fi.vm.sade.hakurekisteri.integration.hakemus.Trigger
 
 case class EnsikertalainenQuery(henkiloOid: String)
 
-class EnsikertalainenActor(suoritusActor: ActorRef, opiskeluoikeusActor: ActorRef, virtaActor: ActorRef, henkiloActor: ActorRef, tarjontaActor: ActorRef)(implicit val ec: ExecutionContext) extends Actor {
+class EnsikertalainenActor(suoritusActor: ActorRef, opiskeluoikeusActor: ActorRef, virtaActor: ActorRef, henkiloActor: ActorRef, tarjontaActor: ActorRef, hakemukset : ActorRef)(implicit val ec: ExecutionContext) extends Actor {
   val logger = Logging(context.system, this)
   val kesa2014: DateTime = new LocalDate(2014, 7, 1).toDateTimeAtStartOfDay
   implicit val defaultTimeout: Timeout = 15.seconds
 
   override def receive: Receive = {
-    case EnsikertalainenQuery(oid) => onkoEnsikertalainen(oid) map Ensikertalainen pipeTo sender
+    case EnsikertalainenQuery(oid) =>
+      logger.debug(s"EnsikertalainenQuery($oid)")
+      onkoEnsikertalainen(oid) map Ensikertalainen pipeTo sender
+  }
+
+  override def preStart(): Unit = {
+    hakemukset ! Trigger((oid, hetu) => self ! EnsikertalainenQuery(oid))
+    super.preStart()
   }
 
   def getHetu(henkilo: String): Future[String] = (henkiloActor ? henkilo).mapTo[HenkiloResponse].map(_.hetu match {
@@ -44,7 +52,7 @@ class EnsikertalainenActor(suoritusActor: ActorRef, opiskeluoikeusActor: ActorRe
   def findKomos(suoritukset: Seq[Suoritus]): Future[Seq[(Komo, Suoritus)]] = {
     Future.sequence(for (
       suoritus <- suoritukset
-    ) yield (tarjontaActor ? GetKomoQuery(suoritus.komo))(10.seconds).mapTo[Option[Komo]].map((_, suoritus)).collect {
+    ) yield (tarjontaActor ? GetKomoQuery(suoritus.komo)).mapTo[Option[Komo]].map((_, suoritus)).collect {
         case (Some(komo), foundsuoritus) => (komo, foundsuoritus)
       })
   }
@@ -60,8 +68,16 @@ class EnsikertalainenActor(suoritusActor: ActorRef, opiskeluoikeusActor: ActorRe
   }
 
   def onkoEnsikertalainen(henkiloOid: String): Future[Boolean] = {
-    val tutkinnot: Future[Seq[Suoritus]] = getKkTutkinnot(henkiloOid)
-    val opiskeluoikeudet: Future[Seq[Opiskeluoikeus]] = getKkOpiskeluoikeudet2014KesaJalkeen(henkiloOid)
+    val tutkinnot: Future[Seq[Suoritus]] = getKkTutkinnot(henkiloOid).recover {
+      case t:Throwable =>
+        logger.warning("failed to find suoritus from local registers, checking virta", t)
+        Seq()
+    }
+    val opiskeluoikeudet: Future[Seq[Opiskeluoikeus]] = getKkOpiskeluoikeudet2014KesaJalkeen(henkiloOid).recover {
+      case t:Throwable =>
+        logger.warning("failed to find opiskeluoikeus from local registers, checking virta", t)
+        Seq()
+    }
 
     tutkinnot.foreach(t => logger.debug(s"tutkinnot: $t"))
     opiskeluoikeudet.foreach(o => logger.debug(s"opiskeluoikeudet: $o"))
@@ -75,7 +91,7 @@ class EnsikertalainenActor(suoritusActor: ActorRef, opiskeluoikeusActor: ActorRe
   }
 
   def checkEnsikertalainenFromVirta(henkiloOid: String): Future[Boolean] = {
-    val virtaResult: Future[(Seq[Opiskeluoikeus], Seq[Suoritus])] = getHetu(henkiloOid).flatMap((hetu) => (virtaActor ? VirtaQuery(Some(henkiloOid), Some(hetu)))(10.seconds).mapTo[(Seq[Opiskeluoikeus], Seq[Suoritus])])
+    val virtaResult: Future[(Seq[Opiskeluoikeus], Seq[Suoritus])] = getHetu(henkiloOid).flatMap((hetu) => (virtaActor ? VirtaQuery(Some(henkiloOid), Some(hetu)))(60.seconds).mapTo[(Seq[Opiskeluoikeus], Seq[Suoritus])])
     for ((opiskeluoikeudet, suoritukset) <- virtaResult) yield {
       val filteredOpiskeluoikeudet = opiskeluoikeudet.filter(_.aika.alku.isAfter(kesa2014))
       saveVirtaResult(filteredOpiskeluoikeudet, suoritukset)

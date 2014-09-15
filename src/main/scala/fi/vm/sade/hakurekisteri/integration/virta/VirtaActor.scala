@@ -23,8 +23,8 @@ class VirtaActor(virtaClient: VirtaClient, organisaatioActor: ActorRef, tarjonta
   val log = Logging(context.system, this)
 
   def receive: Receive = {
-    case q: VirtaQuery =>
-      convertVirtaResult(virtaClient.getOpiskelijanTiedot(oppijanumero = q.oppijanumero, hetu = q.hetu))(q.oppijanumero) pipeTo sender
+    case VirtaQuery(o, h) =>
+      convertVirtaResult(virtaClient.getOpiskelijanTiedot(oppijanumero = o, hetu = h))(o) pipeTo sender
   }
 
   def opiskeluoikeus(oppijanumero: Option[String])(o: VirtaOpiskeluoikeus): Future[Opiskeluoikeus] = {
@@ -36,7 +36,7 @@ class VirtaActor(virtaClient: VirtaClient, organisaatioActor: ActorRef, tarjonta
           henkiloOid = oppijanumero.get,
           komo = komoOid,
           myontaja = oppilaitosOid,
-          source = OPH
+          source = CSC
         )
       })
     })
@@ -53,7 +53,7 @@ class VirtaActor(virtaClient: VirtaClient, organisaatioActor: ActorRef, tarjonta
           henkiloOid = oppijanumero.get,
           yksilollistaminen = yksilollistaminen.Ei,
           suoritusKieli = t.kieli,
-          source = OPH
+          source = CSC
         )
       })
     })
@@ -77,13 +77,13 @@ class VirtaActor(virtaClient: VirtaClient, organisaatioActor: ActorRef, tarjonta
   }
 
   import akka.pattern.ask
-  val OPH = "1.2.246.562.10.00000000001"
+  val CSC = "1.2.246.562.10.2013112012294919827487"
   val tuntematon = "1.2.246.562.10.57118763579"
 
   def resolveOppilaitosOid(oppilaitosnumero: String): Future[String] = oppilaitosnumero match {
     case o if Seq("XX", "UK", "UM").contains(o) => Future.successful(tuntematon)
     case o =>
-      (organisaatioActor ? o)(10.seconds).mapTo[Option[Organisaatio]].map(_ match {
+      (organisaatioActor ? o)(20.seconds).mapTo[Option[Organisaatio]].map(_ match {
         case Some(org) => org.oid
         case _ => log.error(s"oppilaitos not found with oppilaitosnumero $o"); throw OppilaitosNotFoundException(s"oppilaitos not found with oppilaitosnumero $o")
       })

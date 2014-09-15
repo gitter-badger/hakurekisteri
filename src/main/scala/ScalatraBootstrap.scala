@@ -1,3 +1,5 @@
+import java.util.concurrent.atomic.AtomicInteger
+
 import _root_.akka.camel.CamelExtension
 import _root_.akka.routing.BroadcastRouter
 import fi.vm.sade.hakurekisteri.integration.audit.AuditUri
@@ -6,7 +8,7 @@ import fi.vm.sade.hakurekisteri.integration.parametrit.ParameterActor
 import fi.vm.sade.hakurekisteri.integration.ytl.{YTLConfig, KokelasRequest, YtlActor}
 import java.nio.file.Path
 import java.util.UUID
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{ThreadFactory, Executors, TimeUnit}
 import javax.servlet.{Servlet, DispatcherType, ServletContext, ServletContextEvent}
 
 import _root_.akka.actor.{ActorRef, ActorSystem, Props}
@@ -287,8 +289,19 @@ class BaseIntegrations(virtaConfig: VirtaConfig,
                        rekisterit: Registers,
                        system: ActorSystem) extends Integrations {
 
-  def getClient(): HttpClient = {
-    new ApacheHttpClient(socketTimeout = 120.seconds.toMillis.toInt)()
+  def getClient: HttpClient = getClient("default")
+
+  def getClient(poolName:String = "default"): HttpClient = {
+    if (poolName == "default") new ApacheHttpClient(socketTimeout = 120.seconds.toMillis.toInt)()
+    else {
+      val threadNumber = new AtomicInteger(1)
+      val pool = Executors.newFixedThreadPool(8, new ThreadFactory() {
+        override def newThread(r: Runnable): Thread = {
+          new Thread(r, poolName + "-" + threadNumber.getAndIncrement)
+        }
+      })
+      new ApacheHttpClient(socketTimeout = 120.seconds.toMillis.toInt)(ExecutionContext.fromExecutorService(pool))
+    }
   }
 
   implicit val ec: ExecutionContext = system.dispatcher
@@ -297,11 +310,11 @@ class BaseIntegrations(virtaConfig: VirtaConfig,
 
   val organisaatiot = system.actorOf(Props(new OrganisaatioActor(new VirkailijaRestClient(organisaatioConfig)(getClient, ec))))
 
-  val virta = system.actorOf(Props(new VirtaActor(new VirtaClient(virtaConfig)(getClient, ec), organisaatiot, tarjonta)), "virta")
+  val virta = system.actorOf(Props(new VirtaActor(new VirtaClient(virtaConfig)(getClient("virta"), ec), organisaatiot, tarjonta)), "virta")
 
   val henkilo = system.actorOf(Props(new fi.vm.sade.hakurekisteri.integration.henkilo.HenkiloActor(new VirkailijaRestClient(henkiloConfig)(getClient, ec))), "henkilo")
 
-  val sijoittelu = system.actorOf(Props(new SijoitteluActor(new VirkailijaRestClient(sijoitteluConfig)(getClient, ec), "1.2.246.562.5.2013080813081926341927")))
+  val sijoittelu = system.actorOf(Props(new SijoitteluActor(new VirkailijaRestClient(sijoitteluConfig)(getClient, ec))))
 
   val ytl = system.actorOf(Props(new YtlActor(henkilo, rekisterit.suoritusRekisteri: ActorRef, rekisterit.arvosanaRekisteri: ActorRef, ytlConfig)), "ytl")
 
@@ -309,7 +322,9 @@ class BaseIntegrations(virtaConfig: VirtaConfig,
     ytl ! KokelasRequest(oid, hetu)
 
   }
-  val hakemukset = system.actorOf(Props(new HakemusActor(new VirkailijaRestClient(hakemusConfig.serviceConf)(getClient, ec), hakemusConfig.maxApplications, newApplicant = newApplicant)), "hakemus")
+  val hakemukset = system.actorOf(Props(new HakemusActor(new VirkailijaRestClient(hakemusConfig.serviceConf)(getClient, ec), hakemusConfig.maxApplications)), "hakemus")
+
+  hakemukset ! Trigger(newApplicant _)
 
   val koodisto = system.actorOf(Props(new KoodistoActor(new VirkailijaRestClient(koodistoConfig)(getClient, ec))), "koodisto")
 
@@ -327,8 +342,9 @@ class BaseKoosteet(system: ActorSystem, integrations: Integrations, registers: R
 
   val hakijat = system.actorOf(Props(new HakijaActor(new AkkaHakupalvelu(integrations.hakemukset), integrations.organisaatiot, integrations.koodisto, integrations.sijoittelu)), "hakijat")
 
-  override val ensikertalainen: ActorRef = system.actorOf(Props(new EnsikertalainenActor(registers.suoritusRekisteri, registers.opiskeluoikeusRekisteri, integrations.virta, integrations.henkilo, integrations.tarjonta)), "ensikertalainen")
+  override val ensikertalainen: ActorRef = system.actorOf(Props(new EnsikertalainenActor(registers.suoritusRekisteri, registers.opiskeluoikeusRekisteri, integrations.virta, integrations.henkilo, integrations.tarjonta, integrations.hakemukset)), "ensikertalainen")
 
-  val haut = system.actorOf(Props(new HakuActor(integrations.tarjonta, integrations.parametrit, integrations.hakemukset)))
-  //integrations.hakemukset ! Trigger((oid, hetu) => ensikertalainen ! EnsikertalainenQuery(oid))
+  val haut = system.actorOf(Props(new HakuActor(integrations.tarjonta, integrations.parametrit, integrations.hakemukset, integrations.sijoittelu)))
+
+
 }
