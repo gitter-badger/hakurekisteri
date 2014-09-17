@@ -6,13 +6,13 @@ import akka.actor.{Actor, Props, ActorRef}
 import akka.event.Logging
 import com.stackmob.newman.response.HttpResponseCode
 import fi.vm.sade.hakurekisteri.hakija.{Hakuehto, HakijaQuery}
-import fi.vm.sade.hakurekisteri.healthcheck.{Hakemukset, Health}
+import fi.vm.sade.hakurekisteri.healthcheck.{RefreshingResource, Hakemukset, Health}
 import fi.vm.sade.hakurekisteri.rest.support.{HakurekisteriJsonSupport, Query}
 import fi.vm.sade.hakurekisteri.storage.repository._
 import fi.vm.sade.hakurekisteri.storage.{Identified, ResourceActor, ResourceService}
 
 import scala.concurrent.Future
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 import fi.vm.sade.hakurekisteri.integration.{ServiceConfig, VirkailijaRestClient}
 
 trait HakemusService extends ResourceService[FullHakemus, String] with JournaledRepository[FullHakemus, String] {
@@ -87,9 +87,10 @@ class HakemusActor(hakemusClient: VirkailijaRestClient,
   var hakijaTrigger:Seq[ActorRef] = Seq()
 
   override def receive: Receive = super.receive.orElse({
-    case ReloadHaku(haku) => getHakemukset(HakijaQuery(Some(haku), None, None, Hakuehto.Kaikki, None)) map ((hs) => {
-      logger.debug(s"found $hs applications")
-    })
+    case ReloadHaku(haku) => getHakemukset(HakijaQuery(Some(haku), None, None, Hakuehto.Kaikki, None)) onComplete {
+      case Success(hs) =>  logger.debug(s"found $hs applications")
+      case Failure(ex) => logger.error(ex, s"failed fetching Hakemukset for $haku")
+    }
     case Health(actor) => healthCheck = Some(actor)
     case Trigger(trig) => hakijaTrigger = context.actorOf(Props(new HakijaTrigger(trig))) +: hakijaTrigger
   })
@@ -105,13 +106,14 @@ class HakemusActor(hakemusClient: VirkailijaRestClient,
       case l if l.isEmpty => Future.successful(None)
       case l if l.length < maxApplications =>
         for (actor <- healthCheck)
-          actor ! Hakemukset(q.haku.getOrElse("unknown"), cur + l.length)
+          actor ! Hakemukset(q.haku.getOrElse("unknown"), RefreshingResource(cur + l.length))
         handleNew(l)
         Future.successful(Some(cur + l.length))
       case l =>
         for (actor <- healthCheck)
-          actor ! Hakemukset(q.haku.getOrElse("unknown"), cur + l.length)
+          actor ! Hakemukset(q.haku.getOrElse("unknown"), RefreshingResource(cur + l.length, reloading = true))
         handleNew(l)
+        log.debug(s"requesting $maxApplications new Hakemukset for ${q.haku.getOrElse("not specified")} current count $cur")
         restRequest[List[FullHakemus]](getUri((cur / maxApplications) + 1)).flatMap(getAll(cur + l.length))
     }
 
