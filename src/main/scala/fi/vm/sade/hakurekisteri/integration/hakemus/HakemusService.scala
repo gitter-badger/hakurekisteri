@@ -32,23 +32,23 @@ trait HakemusService extends ResourceService[FullHakemus, String] with Journaled
         filterField(haku, _.applicationSystemId)(hakemus)  &&
           someField(
             organisaatio,
-            _.answers.
-              getOrElse(Map()).
-              getOrElse("hakutoiveet", Map()).
+            _.answers.flatMap(_.hakutoiveet).getOrElse(Map()).
               filterKeys((k) => k.contains("Opetuspiste-id-parents")).
               flatMap(_._2.split(",")).toSeq)(hakemus) &&
           someField(
             hakukohdekoodi,
-            _.answers.
-              getOrElse(Map()).
-              getOrElse("hakutoiveet", Map()).
+            _.answers.flatMap(_.hakutoiveet).getOrElse(Map()).
               filterKeys((k) => k.contains("Koulutus-id-aoIdentifier")).values.toSeq)(hakemus)
+    case HenkiloHakijaQuery(henkilo) =>
+      (hakemus) => hakemus.oid == henkilo
   }
 
   override def identify(o: FullHakemus): FullHakemus with Identified[String] = FullHakemus.identify(o)
 }
 
 case class HakemusQuery(haku: Option[String], organisaatio: Option[String], hakukohdekoodi: Option[String]) extends Query[FullHakemus]
+
+case class HenkiloHakijaQuery(henkilo:String) extends Query[FullHakemus]
 
 object HakemusQuery {
   def apply(hq: HakijaQuery):HakemusQuery = HakemusQuery(hq.haku, hq.organisaatio, hq.hakukohdekoodi)
@@ -61,8 +61,8 @@ object Trigger {
   def apply(oidHetu: (String, String) => Unit): Trigger = Trigger(_ match {
     case FullHakemus(_, Some(personOid), _, Some(answers), _) =>
       for (
-        henkilo <- answers.get("henkilotiedot");
-        hetu <- henkilo.get("Henkilotunnus")
+        henkilo <- answers.henkilotiedot;
+        hetu <- henkilo.Henkilotunnus
       ) oidHetu(personOid, hetu)
     case _ =>
 
