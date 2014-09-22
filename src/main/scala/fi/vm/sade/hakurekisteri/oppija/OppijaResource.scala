@@ -1,5 +1,6 @@
 package fi.vm.sade.hakurekisteri.oppija
 
+import fi.vm.sade.hakurekisteri.integration.virta.VirtaConnectionErrorException
 import fi.vm.sade.hakurekisteri.rest.support.{SpringSecuritySupport, HakurekisteriJsonSupport, Registers}
 import fi.vm.sade.hakurekisteri.HakuJaValintarekisteriStack
 import org.scalatra.json.JacksonJsonSupport
@@ -59,17 +60,22 @@ class OppijaResource(rekisterit: Registers, hakemusRekisteri: ActorRef, ensikert
     new AsyncResult() {
       val is = for (
         hakemukset <- (hakemusRekisteri ? q).mapTo[Seq[FullHakemus]];
-        oppijat <- fetchOppijatFor(hakemukset.filter(_.hetu.isDefined).slice(0,1))
-      ) yield oppijat.headOption.fold(NotFound())(Ok(_))
+        oppijat <- fetchOppijatFor(hakemukset.filter((fh) => fh.personOid.isDefined && fh.hetu.isDefined).slice(0,1))
+      ) yield oppijat.headOption.fold(NotFound(body = ""))(Ok(_))
     }
 
+  }
+
+  incident {
+    case t: VirtaConnectionErrorException => (id) => InternalServerError(IncidentReport(id, "virta error"))
   }
 
 
   def fetchOppijatFor(hakemukset: Seq[FullHakemus]): Future[Seq[Oppija]] =
     Future.sequence(for (
       hakemus <- hakemukset
-    ) yield fetchOppijaData(hakemus.oid, hakemus.hetu))
+      if hakemus.personOid.isDefined && hakemus.state.exists((state) => state == "ACTIVE")
+    ) yield fetchOppijaData(hakemus.personOid.get, hakemus.hetu))
 
 
   def fetchTodistukset(suoritukset: Seq[Suoritus with Identified[UUID]]):Future[Seq[Todistus]] = Future.sequence(
