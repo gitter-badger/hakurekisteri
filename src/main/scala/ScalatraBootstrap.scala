@@ -214,7 +214,7 @@ class AuthorizedRegisters(organisaatioSoapServiceUrl: String, unauthorized: Regi
   import scala.reflect.runtime.universe._
   implicit val ec:ExecutionContext = system.dispatcher
 
-  def authorizer[A <: Resource[I] : ClassTag: Manifest, I](guarded: ActorRef, orgFinder: A => Option[String]): ActorRef = {
+  def authorizer[A <: Resource[I, A] : ClassTag: Manifest, I: Manifest](guarded: ActorRef, orgFinder: A => Option[String]): ActorRef = {
     val resource = typeOf[A].typeSymbol.name.toString.toLowerCase
     system.actorOf(Props(new OrganizationHierarchy[A, I](organisaatioSoapServiceUrl, guarded, (i: A) => orgFinder(i).map(Set(_)).getOrElse(Set()))), s"$resource-authorizer")
   }
@@ -275,7 +275,7 @@ class AuditedRegisters(amqUrl: String, amqQueue: String, authorizedRegisters: Re
   import fi.vm.sade.hakurekisteri.integration.audit.AuditLog
   import scala.reflect.runtime.universe._
 
-  def getBroadcastForLogger[A <: Resource[I]: TypeTag: ClassTag, I: TypeTag: ClassTag](rekisteri: ActorRef) = {
+  def getBroadcastForLogger[A <: Resource[I, A]: TypeTag: ClassTag, I: TypeTag: ClassTag](rekisteri: ActorRef) = {
     system.actorOf(Props.empty.withRouter(BroadcastRouter(routees = List(rekisteri, system.actorOf(Props(new AuditLog[A, I](typeOf[A].typeSymbol.name.toString)).withDispatcher("akka.hakurekisteri.audit-dispatcher"), typeOf[A].typeSymbol.name.toString.toLowerCase+"-audit") ))))
   }
 }
@@ -350,7 +350,7 @@ class BaseIntegrations(virtaConfig: VirtaConfig,
 
   val organisaatiot = system.actorOf(Props(new OrganisaatioActor(new VirkailijaRestClient(organisaatioConfig)(getClient, ec))), "organisaatio")
 
-  val virta = system.actorOf(Props(new VirtaActor(new VirtaClient(virtaConfig)(getClient("virta", 100, 100), ec), organisaatiot)), "virta")
+  val virta = system.actorOf(Props(new VirtaActor(new VirtaClient(virtaConfig)(getClient("virta", 50, 50), ec), organisaatiot)), "virta")
 
   val henkilo = system.actorOf(Props(new fi.vm.sade.hakurekisteri.integration.henkilo.HenkiloActor(new VirkailijaRestClient(henkiloConfig, Some(jSessionIdActor))(getClient, ec))), "henkilo")
 

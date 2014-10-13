@@ -1,15 +1,15 @@
 package fi.vm.sade.hakurekisteri.integration.virta
 
-import akka.actor.{ActorRef, Actor}
+import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
+import akka.pattern.pipe
 import fi.vm.sade.hakurekisteri.integration.organisaatio.Organisaatio
 import fi.vm.sade.hakurekisteri.opiskeluoikeus.Opiskeluoikeus
-import fi.vm.sade.hakurekisteri.suoritus.{VirallinenSuoritus, Suoritus, yksilollistaminen}
+import fi.vm.sade.hakurekisteri.suoritus.{Suoritus, VirallinenSuoritus, yksilollistaminen}
 import org.joda.time.LocalDate
 
-import scala.concurrent.{ExecutionContext, Future}
 import scala.concurrent.duration._
-import akka.pattern.pipe
+import scala.concurrent.{ExecutionContext, Future}
 
 case class VirtaQuery(oppijanumero: String, hetu: Option[String])
 
@@ -44,7 +44,7 @@ class VirtaActor(virtaClient: VirtaClient, organisaatioActor: ActorRef) extends 
           henkiloOid = oppijanumero,
           komo = getKoulutusUri(o.koulutuskoodit.headOption),
           myontaja = oppilaitosOid,
-          source = CSC)
+          source = Virta.CSC)
 
 
   def tutkinto(oppijanumero: String)(t: VirtaTutkinto): Future[Suoritus] =
@@ -59,7 +59,7 @@ class VirtaActor(virtaClient: VirtaClient, organisaatioActor: ActorRef) extends 
           yksilollistaminen = yksilollistaminen.Ei,
           suoritusKieli = t.kieli,
           vahv = true,
-          lahde = CSC)
+          lahde = Virta.CSC)
 
   def tila(valmistuminen: LocalDate): String = valmistuminen match {
     case v: LocalDate if v.isBefore(new LocalDate()) => "VALMIS"
@@ -78,15 +78,18 @@ class VirtaActor(virtaClient: VirtaClient, organisaatioActor: ActorRef) extends 
   }
 
   import akka.pattern.ask
-  val CSC = "1.2.246.562.10.2013112012294919827487"
   val tuntematon = "1.2.246.562.10.57118763579"
 
   def resolveOppilaitosOid(oppilaitosnumero: String): Future[String] = oppilaitosnumero match {
     case o if Seq("XX", "UK", "UM").contains(o) => Future.successful(tuntematon)
     case o =>
-      (organisaatioActor ? o)(20.seconds).mapTo[Option[Organisaatio]] map {
+      (organisaatioActor ? o)(30.seconds).mapTo[Option[Organisaatio]] map {
           case Some(org) => org.oid
           case _ => log.error(s"oppilaitos not found with oppilaitosnumero $o"); throw OppilaitosNotFoundException(s"oppilaitos not found with oppilaitosnumero $o")
       }
   }
+}
+
+object Virta {
+  val CSC = "1.2.246.562.10.2013112012294919827487"
 }
