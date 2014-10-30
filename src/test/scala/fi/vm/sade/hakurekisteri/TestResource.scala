@@ -9,6 +9,8 @@ case class TestResource(name:String) extends fi.vm.sade.hakurekisteri.rest.suppo
 
   val source = "Test"
   override def identify(id: UUID): TestResource with Identified[UUID] = TestResource.identify(this, id)
+
+  override val core: AnyRef = name
 }
 
 object TestResource {
@@ -17,7 +19,7 @@ object TestResource {
 
 
   def identify(o:TestResource): TestResource with Identified[UUID] = o match {
-    case o: TestResource with Identified[UUID] => o
+    case o: TestResource with Identified[_] if o.id.isInstanceOf[UUID] => o.asInstanceOf[TestResource with Identified[UUID]]
     case _ => o.identify(UUID.randomUUID)
   }
 

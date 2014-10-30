@@ -1,7 +1,6 @@
 package fi.vm.sade.hakurekisteri.db
 
-import org.scalatest.FlatSpec
-import org.scalatest.matchers.ShouldMatchers
+import org.scalatest.{Matchers, FlatSpec}
 import fi.vm.sade.hakurekisteri.rest.support.HakurekisteriDriver
 import HakurekisteriDriver.simple._
 import scala.slick.jdbc.meta.MTable
@@ -9,7 +8,7 @@ import fi.vm.sade.hakurekisteri.batchimport.{ImportBatch, ImportBatchTable}
 import fi.vm.sade.hakurekisteri.storage.repository.Updated
 import java.util.UUID
 
-class TableSpec extends FlatSpec with ShouldMatchers{
+class TableSpec extends FlatSpec with Matchers{
 
 
 
@@ -27,7 +26,7 @@ class TableSpec extends FlatSpec with ShouldMatchers{
     val tables = db withSession {
       implicit session =>
         table.ddl.create
-        MTable.getTables(table.baseTableRow.tableName).list()
+        MTable.getTables(table.baseTableRow.tableName).list
 
     }
 
@@ -93,7 +92,7 @@ class TableSpec extends FlatSpec with ShouldMatchers{
     db withSession{
       implicit session =>
 
-        if (MTable.getTables(table.baseTableRow.tableName).list().isEmpty) {
+        if (MTable.getTables(table.baseTableRow.tableName).list.isEmpty) {
           table.ddl.create
         }
 

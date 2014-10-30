@@ -1,5 +1,7 @@
 package fi.vm.sade.hakurekisteri.integration.haku
 
+import fi.vm.sade.hakurekisteri.integration.valintatulos.ValintaTulosQuery
+
 import scala.concurrent.{ExecutionContext, Future}
 import akka.actor.{ActorLogging, ActorRef, Actor}
 import fi.vm.sade.hakurekisteri.integration.tarjonta.{RestHaku, GetHautQuery, RestHakuResult}
@@ -7,15 +9,14 @@ import fi.vm.sade.hakurekisteri.integration.parametrit.{HakuParams, KierrosReque
 import akka.pattern.pipe
 import fi.vm.sade.hakurekisteri.dates.{Ajanjakso, InFuture}
 import org.joda.time.{DateTime, ReadableInstant}
-import akka.event.Logging
 import fi.vm.sade.hakurekisteri.integration.hakemus.ReloadHaku
 import scala.concurrent.duration._
 import org.scalatra.util.RicherString._
-import fi.vm.sade.hakurekisteri.integration.sijoittelu.SijoitteluQuery
 import fi.vm.sade.hakurekisteri.integration.ytl.HakuList
+import scala.language.implicitConversions
 
 
-class HakuActor(tarjonta: ActorRef, parametrit: ActorRef, hakemukset: ActorRef, sijoittelu: ActorRef, ytl: ActorRef) extends Actor with ActorLogging {
+class HakuActor(tarjonta: ActorRef, parametrit: ActorRef, hakemukset: ActorRef, valintaTulos: ActorRef, ytl: ActorRef) extends Actor with ActorLogging {
   implicit val ec = context.dispatcher
 
   var activeHakus: Seq[Haku] = Seq()
@@ -42,7 +43,8 @@ class HakuActor(tarjonta: ActorRef, parametrit: ActorRef, hakemukset: ActorRef, 
 
     case RestHakuResult(hakus: List[RestHaku]) => enrich(hakus).waitForAll pipeTo self
 
-    case s: Seq[Haku] =>
+    case sq: Seq[_] =>
+      val s = sq.collect{ case h:Haku => h}
       activeHakus = s.filter(_.aika.isCurrently)
       ytl ! HakuList(activeHakus.filter(_.kkHaku).map(_.oid).toSet)
       log.debug(s"current hakus ${activeHakus.mkString(", ")}")
@@ -79,7 +81,7 @@ class HakuActor(tarjonta: ActorRef, parametrit: ActorRef, hakemukset: ActorRef, 
   }
 
   def refreshKeepAlives() {
-    activeHakus.zipWithIndex foreach {case (haku: Haku, i: Int) => context.system.scheduler.scheduleOnce((i * 5).seconds, sijoittelu, SijoitteluQuery(haku.oid))(context.dispatcher, ActorRef.noSender)}
+    activeHakus.zipWithIndex foreach {case (haku: Haku, i: Int) => context.system.scheduler.scheduleOnce((i * 5).seconds, valintaTulos, ValintaTulosQuery(haku.oid, None, cachedOk = false))(context.dispatcher, ActorRef.noSender)}
   }
 }
 
