@@ -26,6 +26,4 @@ class FutureCache[K, T](val expirationDurationMillis: Long = 60.minutes.toMillis
 
   private def getAccessed(key: K): Long = cache.get(key).map(_.accessed).getOrElse(Platform.currentTime)
 
-  def -(key: K) = if (cache.contains(key)) cache = cache - key
-
 }
