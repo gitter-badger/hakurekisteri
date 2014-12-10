@@ -84,7 +84,14 @@ class ImportBatchProcessingActor(importBatchActor: ActorRef, henkiloActor: Actor
 
     override def preStart() = fetchAllOppilaitokset()
 
-    def saveHenkilo(h: ImportHenkilo) = henkiloActor ! SaveHenkilo(h.toHenkilo, h.tunniste.tunniste)
+    def saveHenkilo(h: ImportHenkilo, resolveOid: (String) => String) = h.tunniste match {
+      case ImportOppijanumero(oppijanumero) =>
+        henkiloActor ! CheckHenkilo(h.tunniste.tunniste)
+        // FIXME henkilö oidilla tuleville henkilöille ei päivitetä organisaatiohenkilöä henkilöpalveluun
+
+      case _ =>
+        henkiloActor ! SaveHenkilo(h.toHenkilo(resolveOid), h.tunniste.tunniste)
+    }
 
     def saveOpiskelija(henkiloOid: String, importHenkilo: ImportHenkilo) = {
       val opiskelija = Opiskelija(
@@ -130,7 +137,7 @@ class ImportBatchProcessingActor(importBatchActor: ActorRef, henkiloActor: Actor
         organisaatiot = organisaatiot + (koodi -> Some(organisaatio))
         if (!organisaatiot.values.exists(_.isEmpty))
           importHenkilot.values.foreach(h => {
-            saveHenkilo(h)
+            saveHenkilo(h, (lahtokoulu) => organisaatiot(lahtokoulu).map(_.oid).get)
           })
 
       case SavedHenkilo(henkiloOid, tunniste) =>
@@ -194,30 +201,36 @@ case class ImportHenkilo(tunniste: ImportTunniste, lahtokoulu: String, luokka: S
                          kutsumanimi: String, kotikunta: String, aidinkieli: String, kansalaisuus: Option[String],
                          lahiosoite: Option[String], postinumero: Option[String], maa: Option[String], matkapuhelin: Option[String],
                          muuPuhelin: Option[String], suoritukset: Seq[VirallinenSuoritus], lahde: String) {
-  def toHenkilo: Henkilo = Henkilo(
-    oidHenkilo = None,
-    hetu = tunniste match {
-      case ImportHetu(h) => Some(h)
-      case _ => None
-    },
-    henkiloTyyppi = "OPPIJA",
-    etunimet = Some(etunimet),
-    kutsumanimi = Some(kutsumanimi),
-    sukunimi = Some(sukunimi),
-    kotikunta = Some(kotikunta),
-    aidinkieli = Some(Kieli(aidinkieli))
-  )
-  def toUpdatedHenkilo(h: Henkilo): Henkilo = h.copy(
-    id = h.id,
-    oidHenkilo = h.oidHenkilo,
-    hetu = h.hetu,
-    henkiloTyyppi = h.henkiloTyyppi,
-    etunimet = Some(etunimet),
-    kutsumanimi = Some(kutsumanimi),
-    sukunimi = Some(sukunimi),
-    kotikunta = Some(kotikunta),
-    aidinkieli = Some(Kieli(aidinkieli))
-  )
+  import HetuUtil._
+  val mies = "1"
+  val nainen = "2"
+
+  def toHenkilo(resolveOid: (String) => String): CreateHenkilo = {
+    val (syntymaaika: Option[String], sukupuoli: Option[String]) = tunniste match {
+      case ImportHenkilonTunniste(_, syntymaAika, sukup) => (Some(syntymaAika), Some(sukup))
+      case ImportHetu(Hetu(hetu)) =>
+        if (hetu.charAt(9).toInt % 2 == 0)
+          (toSyntymaAika(hetu), Some(nainen))
+        else
+          (toSyntymaAika(hetu), Some(mies))
+      case _ => (None, None)
+    }
+    CreateHenkilo(
+      etunimet = etunimet,
+      kutsumanimi = kutsumanimi,
+      sukunimi = sukunimi,
+      hetu = tunniste match {
+        case ImportHetu(h) => Some(h)
+        case _ => None
+      },
+      syntymaaika = syntymaaika,
+      sukupuoli = sukupuoli,
+      asiointiKieli = Kieli(aidinkieli.toLowerCase),
+      henkiloTyyppi = "OPPIJA",
+      kasittelijaOid = lahde,
+      organisaatioHenkilo = Seq(OrganisaatioHenkilo(resolveOid(lahtokoulu)))
+    )
+  }
 }
 
 object ImportHenkilo {
@@ -286,6 +299,7 @@ object ImportHenkilo {
       matkapuhelin = getOptionField("matkapuhelin")(h),
       muuPuhelin = getOptionField("muuPuhelin")(h),
       suoritukset = suoritukset,
-      lahde = lahde)
+      lahde = lahde
+    )
   }
 }
