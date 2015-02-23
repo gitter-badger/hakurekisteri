@@ -82,7 +82,8 @@ object HakurekisteriBuild extends Build {
     "org.apache.camel" % "camel-jms" % "2.13.0",
     "org.scalaz" %% "scalaz-xml" % "7.0.6",
     "fi.vm.sade.log" % "log-client" % "7.0",
-    "fr.janalyse" %% "janalyse-ssh" % "0.9.14"
+    "fr.janalyse" %% "janalyse-ssh" % "0.9.14",
+    "fi.vm.sade" % "embedded-tomcat" % "1.0-SNAPSHOT" % "test"
   )
 
   val testDependencies = Seq("org.scalatra" %% "scalatra-scalatest" % ScalatraVersion,
