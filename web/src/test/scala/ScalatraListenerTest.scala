@@ -1,3 +1,4 @@
+import javax.naming.spi.NamingManager
 import javax.servlet.ServletContextEvent
 
 import org.apache.catalina.Globals
@@ -8,15 +9,24 @@ class ScalatraListenerTest extends ScalatraListener {
 
 
   override def configureServletContext(sce: ServletContextEvent) {
-    val x = sce.getServletContext.getInitParameterNames
+    //val x = sce.getServletContext.getInitParameterNames
+    //val jndiName = "java:comp/env/jdbc/suoritusrekisteri"
+
+    //sce.getServletContext.setAttribute("java.naming.factory.initial", "org.springframework.jndi.JndiObjectFactoryBean")
+    sce.getServletContext.setAttribute("java:comp/env/jdbc/suoritusrekisteri", createDbResource("suoritusrekisteri"))
+    sce.getServletContext.setAttribute("jdbc/suoritusrekisteri", createDbResource("suoritusrekisteri"))
+
+
+//    sce.getServletContext.setAttribute("java:comp/env/jdbc/tiedonsiirto", createDbResource("tiedonsiirto"))
+
+    /*
+    names = sce.getServletContext.getAttributeNames()
+    while (names.hasMoreElements) {
+      println("name bef: " + names.nextElement())
+    }
+*/
 
     super.configureServletContext(sce)
-  }
-
-
-  override def configureExecutionContext(sce: ServletContextEvent): Unit = {
-    println("blob")
-
   }
 
 

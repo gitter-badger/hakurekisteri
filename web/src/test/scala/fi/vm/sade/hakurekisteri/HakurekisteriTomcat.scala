@@ -1,6 +1,9 @@
 package fi.vm.sade.hakurekisteri
 
 import java.io.File
+import java.util
+import javax.naming.{Context, InitialContext}
+import javax.naming.spi.{InitialContextFactory, NamingManager, InitialContextFactoryBuilder}
 
 import org.apache.catalina.deploy.ContextResource
 import org.slf4j.LoggerFactory
@@ -10,6 +13,7 @@ import fi.vm.sade.integrationtest.util.PortChecker
 import fi.vm.sade.integrationtest.util.ProjectRootFinder
 import HakuRekisteriTomcatSettings._
 import scala.collection.JavaConversions._
+import scala.collection.mutable
 
 class HakurekisteriTomcat(port: Int, moduleRoot: String, contextPath: String, resources: List[ContextResource]) extends EmbeddedTomcat(port, moduleRoot, contextPath, resources) {
   def startShared = SharedTomcat.start(HAKU_MODULE_ROOT, HAKU_CONTEXT_PATH)
@@ -42,14 +46,31 @@ object HakurekisteriTomcat {
   def main(args: Array[String]) {
     //val tomcat = new HakurekisteriTomcat(System.getProperty("hakurekisteri-app.port", String.valueOf(DEFAULT_PORT)).toInt, HAKU_MODULE_ROOT, HAKU_CONTEXT_PATH, List(createDbResource("suoritusrekisteri"), createDbResource("tiedonsiirto")))
 
+   //NamingManager.setInitialContextFactoryBuilder()
+/*
+    NamingManager.setInitialContextFactoryBuilder(new InitialContextFactoryBuilder {
+      override def createInitialContextFactory(environment: util.Hashtable[_, _]) = {
+        new InitialContextFactory {
+          override def getInitialContext(environment: util.Hashtable[_, _]) = {
+
+            println("foobar" + environment)
+            new InitialContext(environment)
+          }
+        }
+      }
+    })
+
+*/
+
+
+    System.setProperty(Context.INITIAL_CONTEXT_FACTORY, "fi.vm.sade.hakurekisteri.EmbeddedTomcatInitialContextFactory")
+    val ic = new InitialContext()
+
     val tomcat = new HakurekisteriTomcat(System.getProperty("hakurekisteri-app.port", String.valueOf(DEFAULT_PORT)).toInt, HAKU_MODULE_ROOT, HAKU_CONTEXT_PATH, List())
     tomcat.useIntegrationTestSettings
 
 
-    //tomcat.addResource(createDbResource("suoritusrekisteri"))
-    //tomcat.addResource(createDbResource("tiedonsiirto"))
     tomcat.start.await()
-
   }
 
   def createDbResource(dbName: String) = {
@@ -69,3 +90,14 @@ object HakurekisteriTomcat {
     resource
   }
 }
+
+class EmbeddedTomcatInitialContextFactory extends InitialContextFactory {
+  var ctx: InitialContext = null
+
+  override def getInitialContext(environment: util.Hashtable[_, _]) = {
+    if (ctx == null) ctx = new InitialContext()
+    ctx
+  }
+}
+
+
